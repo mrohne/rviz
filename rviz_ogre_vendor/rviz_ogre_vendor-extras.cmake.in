@@ -12,6 +12,13 @@ endif()
 message(STATUS "Setting OGRE_DIR to: '${OGRE_DIR}'")
 
 find_package(OGRE REQUIRED NO_SYSTEM_ENVIRONMENT_PATH)
+# list(APPEND OGRE_INCLUDE_DIRS
+#      "${OGRE_INCLUDE_DIRS}/RenderSystems/glad"
+#      "${OGRE_INCLUDE_DIRS}/RenderSystems/KHR"
+# )
+list(APPEND OGRE_LIBRARIES ${OGRE_PLUGINS})
+list(APPEND OGRE_LIBRARY_DIRS ${OGRE_PLUGIN_DIR})
+message(STATUS "OGRE_INCLUDE_DIRS: ${OGRE_INCLUDE_DIRS}")
 message(STATUS "OGRE_LIBRARIES: ${OGRE_LIBRARIES}")
 message(STATUS "OGRE_LIBRARY_DIRS: ${OGRE_LIBRARY_DIRS}")
 message(STATUS "OGRE_PLUGINS: ${OGRE_PLUGINS}")
@@ -67,7 +74,7 @@ foreach(_lib IN LISTS OGRE_LIBRARIES)
 
     set_property(TARGET rviz_ogre_vendor::OgreMain
       PROPERTY
-        INTERFACE_INCLUDE_DIRECTORIES ${OGRE_INCLUDE_DIRS} ${OGRE_INCLUDE_DIRS}/RenderSystems/glad
+        INTERFACE_INCLUDE_DIRECTORIES "${OGRE_INCLUDE_DIRS}"
     )
     if(_ogre_main_static_library_abs)
       set_property(TARGET rviz_ogre_vendor::OgreMain APPEND PROPERTY IMPORTED_CONFIGURATIONS RELEASE)

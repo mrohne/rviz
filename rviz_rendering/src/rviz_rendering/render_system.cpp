@@ -172,12 +172,14 @@ public:
     const Ogre::Renderable *) override
   {
     auto * generator = Ogre::RTShader::ShaderGenerator::getSingletonPtr();
-    if (!generator || scheme_name != Ogre::MSN_SHADERGEN) {
+    if (!generator) {
       return nullptr;
     }
 
+    // Mesa Fix: Generate shader-based techniques for BOTH the standard MSN_SHADERGEN 
+    // scheme and any custom viewport rendering schemes (like hover/selection passes).
     if (generator->createShaderBasedTechnique(
-        *original_material, Ogre::MSN_DEFAULT, scheme_name))
+        *original_material, Ogre::MaterialManager::DEFAULT_SCHEME_NAME, scheme_name))
     {
       generator->validateMaterial(
         scheme_name, original_material->getName(), original_material->getGroup());
@@ -187,9 +189,10 @@ public:
         }
       }
     }
+
     // Material cannot be converted to a shader-generated technique (e.g. it
     // already ships custom GLSL programs like rviz/PointCloudBox). Fall back to
-    // the first existing technique so it still renders under MSN_SHADERGEN
+    // the first existing technique so it still renders under the requested scheme
     // instead of being silently skipped.
     if (original_material->getNumTechniques() > 0) {
       return original_material->getTechnique(0);
@@ -214,11 +217,14 @@ RenderSystem::RenderSystem()
   loadOgrePlugins();
   setupRenderSystem();
   ogre_root_->initialise(false);
+#ifndef __SNAPPLE__
   makeRenderWindow(dummy_window_id_, 1, 1);
   detectGlVersion();
-  setupResources();
-  Ogre::ResourceGroupManager::getSingleton().initialiseAllResourceGroups();
-  setupShaderGenerator();
+#else
+  gl_version_ = 410;
+  glsl_version_ = 410;
+  RVIZ_RENDERING_LOG_INFO("macOS: Skipping dummy window and forcing GL 4.1");
+#endif
 }
 
 void
@@ -229,8 +235,13 @@ RenderSystem::setupShaderGenerator()
   // Register those into the OgreInternal group before initializing the generator.
   auto result = ament_index_cpp::get_resource("packages", "rviz_ogre_vendor");
   if (result.resourcePath) {
+#ifdef __APPLE__
+    const std::filesystem::path ogre_media =
+      result.resourcePath.value() / "opt" / "rviz_ogre_vendor" / "Media";
+#else    
     const std::filesystem::path ogre_media =
       result.resourcePath.value() / "opt" / "rviz_ogre_vendor" / "share" / "OGRE-14.5" / "Media";
+#endif    
     const std::string group =
       Ogre::ResourceGroupManager::INTERNAL_RESOURCE_GROUP_NAME;
     auto & rgm = Ogre::ResourceGroupManager::getSingleton();
@@ -243,6 +254,25 @@ RenderSystem::setupShaderGenerator()
     RVIZ_RENDERING_LOG_ERROR("Failed to initialize Ogre RTShaderSystem");
     return;
   }
+  auto& shaderGenerator = Ogre::RTShader::ShaderGenerator::getSingleton();
+  const auto& sceneManagers = ogre_root_->getSceneManagers();
+  for (const auto& it : sceneManagers) {
+    Ogre::SceneManager* sm = it.second;
+    shaderGenerator.addSceneManager(sm);
+    RVIZ_RENDERING_LOG_INFO_STREAM("Added SceneManager: " << sm->getName() << " of type " << sm->getTypeName());
+  }
+  auto& materialManager = Ogre::MaterialManager::getSingleton();
+  materialManager.setActiveScheme(Ogre::RTShader::ShaderGenerator::DEFAULT_SCHEME_NAME);
+  auto matPtr = materialManager.getByName("SelectionRect0");
+  if (matPtr) {
+    shaderGenerator.createShaderBasedTechnique(
+      *matPtr, 
+      Ogre::MaterialManager::DEFAULT_SCHEME_NAME, 
+      Ogre::RTShader::ShaderGenerator::DEFAULT_SCHEME_NAME);
+    shaderGenerator.validateMaterial(
+      Ogre::RTShader::ShaderGenerator::DEFAULT_SCHEME_NAME, 
+      matPtr->getName(), matPtr->getGroup());
+  }  
   // Per-SceneManager registration happens in RenderWindowImpl when the scene
   // manager is created. Here we just install the scheme resolver so materials
   // requested via the MSN_SHADERGEN scheme get shader-based techniques generated
@@ -288,6 +318,8 @@ RenderSystem::loadOgrePlugins()
   std::filesystem::path plugin_prefix = get_ogre_plugin_directory();
 #if defined _WIN32 && !NDEBUG
   ogre_root_->loadPlugin((plugin_prefix / "RenderSystem_GL_d").string());
+#elif defined __APPLE__
+  ogre_root_->loadPlugin((plugin_prefix / "RenderSystem_GL3Plus").string());
 #else
   ogre_root_->loadPlugin((plugin_prefix / "RenderSystem_GL").string());
 #endif
@@ -302,7 +334,7 @@ RenderSystem::detectGlVersion()
   } else {
     Ogre::RenderSystem * renderSys = ogre_root_->getRenderSystem();
     // createRenderSystemCapabilities() called for side effects only
-    Ogre::Root::getSingleton().getRenderSystem()->getCapabilities();
+    // std::unique_ptr<Ogre::RenderSystemCapabilities>(renderSys->createRenderSystemCapabilities());
     const Ogre::RenderSystemCapabilities * caps = renderSys->getCapabilities();
     int major = caps->getDriverVersion().major;
     int minor = caps->getDriverVersion().minor;
@@ -416,6 +448,7 @@ RenderSystem::setupResources()
     rviz_path + "/ogre_media/models", "FileSystem", "rviz_rendering");
   Ogre::ResourceGroupManager::getSingleton().addResourceLocation(
     rviz_path + "/ogre_media/materials", "FileSystem", "rviz_rendering");
+#ifndef __APPLE__  
   Ogre::ResourceGroupManager::getSingleton().addResourceLocation(
     rviz_path + "/ogre_media/materials/scripts", "FileSystem", "rviz_rendering");
   Ogre::ResourceGroupManager::getSingleton().addResourceLocation(
@@ -439,7 +472,8 @@ RenderSystem::setupResources()
     RVIZ_RENDERING_LOG_ERROR(s);
     throw std::runtime_error(s);
   }
-
+#endif
+  
   addAdditionalResourcesFromAmentIndex();
   MaterialManager::createDefaultMaterials();
 }
@@ -577,6 +611,14 @@ RenderSystem::makeRenderWindow(
     const char * msg = "Unable to create the rendering window after 100 tries";
     RVIZ_RENDERING_LOG_ERROR(msg);
     throw std::runtime_error(msg);
+  }
+
+  static bool init = true;
+  if (init) {
+    Ogre::ResourceGroupManager::getSingleton().initialiseAllResourceGroups();
+    setupShaderGenerator();
+    setupResources();
+    init = false;
   }
 
   // Hide dummy window immediately on Windows

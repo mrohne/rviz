@@ -71,7 +71,7 @@ void SelectionRenderer::initialize(Ogre::Camera * camera)
   camera_node_ = camera_->getParentSceneNode();
 
   fallback_pick_material_ = Ogre::MaterialManager::getSingleton().getByName(
-    "rviz/DefaultPickAndDepth");
+    "SelectionRect0");
   if (fallback_pick_material_) {
     fallback_pick_material_->load();
 
