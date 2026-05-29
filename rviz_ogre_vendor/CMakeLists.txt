@@ -45,7 +45,7 @@ endif()
 
 ament_vendor(ogre_vendor
   VCS_URL https://github.com/OGRECave/ogre.git
-  VCS_VERSION v14.5.1
+  VCS_VERSION master
   CMAKE_ARGS
     -DOGRE_STATIC:BOOL=OFF
     -DOGRE_INSTALL_PDB:BOOL=OFF
