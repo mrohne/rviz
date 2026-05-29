@@ -189,7 +189,6 @@ public:
         }
       }
     }
-
     // Material cannot be converted to a shader-generated technique (e.g. it
     // already ships custom GLSL programs like rviz/PointCloudBox). Fall back to
     // the first existing technique so it still renders under the requested scheme
@@ -217,13 +216,13 @@ RenderSystem::RenderSystem()
   loadOgrePlugins();
   setupRenderSystem();
   ogre_root_->initialise(false);
-#ifndef __SNAPPLE__
+#ifndef __APPLE__
   makeRenderWindow(dummy_window_id_, 1, 1);
   detectGlVersion();
 #else
-  gl_version_ = 410;
-  glsl_version_ = 410;
-  RVIZ_RENDERING_LOG_INFO("macOS: Skipping dummy window and forcing GL 4.1");
+  gl_version_ = 450;
+  glsl_version_ = 450;
+  RVIZ_RENDERING_LOG_INFO("macOS: Skipping dummy window");
 #endif
 }
 
@@ -333,8 +332,6 @@ RenderSystem::detectGlVersion()
     gl_version_ = force_gl_version_;
   } else {
     Ogre::RenderSystem * renderSys = ogre_root_->getRenderSystem();
-    // createRenderSystemCapabilities() called for side effects only
-    // std::unique_ptr<Ogre::RenderSystemCapabilities>(renderSys->createRenderSystemCapabilities());
     const Ogre::RenderSystemCapabilities * caps = renderSys->getCapabilities();
     int major = caps->getDriverVersion().major;
     int minor = caps->getDriverVersion().minor;
