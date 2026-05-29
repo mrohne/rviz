@@ -44,6 +44,7 @@
 //   https://doc.qt.io/qt-5/qtgui-openglwindow-openglwindow-cpp.html
 
 #include "rviz_rendering/render_window.hpp"
+#include "rviz_rendering/logging.hpp"
 
 #include <OgreCamera.h>
 
@@ -118,8 +119,10 @@ RenderWindow::setupSceneAfterInit(setupSceneCallback setup_scene_callback)
 
 void RenderWindow::windowMovedOrResized()
 {
-  // It seems that the 'width' and 'height' parameters of the resize() method don't play a role here
-  impl_->resize(0, 0);
+  int qt_width = this->width();
+  int qt_height = this->height();
+
+  impl_->resize(qt_width, qt_height);
 }
 
 void
