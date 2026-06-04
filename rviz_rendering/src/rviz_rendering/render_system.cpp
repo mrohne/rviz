@@ -63,6 +63,8 @@ RenderSystem * RenderSystem::instance_ = nullptr;
 int RenderSystem::force_gl_version_ = 0;
 bool RenderSystem::force_no_stereo_ = false;
 
+  // #define __METAL__
+
 // Disable anti aliasing on Windows for now,
 // since it breaks rendering as soon as two render windows are visible
 // TODO(greimela): Investigate why anti aliasing breaks rendering on Windows
@@ -171,32 +173,29 @@ public:
     Ogre::Material * original_material, uint16_t,
     const Ogre::Renderable *) override
   {
+    RVIZ_RENDERING_LOG_INFO("handleSchemeNotFound: "+scheme_name+"::"+original_material->getName());
     auto * generator = Ogre::RTShader::ShaderGenerator::getSingletonPtr();
-    if (!generator) {
-      return nullptr;
-    }
-
-    if (generator->createShaderBasedTechnique(
-        *original_material, Ogre::MSN_DEFAULT, scheme_name)) {
-      generator->validateMaterial(
-        scheme_name, original_material->getName(), original_material->getGroup());
-      for (auto * t : original_material->getTechniques()) {
-        if (t->getSchemeName() == scheme_name) {
-          return t;
+    if (!generator) return nullptr;
+    if (generator->createShaderBasedTechnique(*original_material, Ogre::MSN_DEFAULT, scheme_name)) {
+      RVIZ_RENDERING_LOG_INFO("handleSchemeNotFound: generator");
+      generator->validateMaterial(scheme_name, original_material->getName(), original_material->getGroup());
+      for (auto * tech : original_material->getTechniques()) {
+        if (tech->getSchemeName() == scheme_name) {
+          RVIZ_RENDERING_LOG_INFO("handleSchemeNotFound: success");
+          return tech;
         }
       }
     }
-    // Material cannot be converted to a shader-generated technique (e.g. it
-    // already ships custom GLSL programs like rviz/PointCloudBox). Fall back to
-    // the first existing technique so it still renders under MSN_SHADERGEN
-    // instead of being silently skipped.
     if (original_material->getNumTechniques() > 0) {
+      RVIZ_RENDERING_LOG_INFO("handleSchemeNotFound: fallback");
+      generator->validateMaterial(scheme_name, original_material->getName(), original_material->getGroup());
+      RVIZ_RENDERING_LOG_INFO("handleSchemeNotFound: defaulting");
       return original_material->getTechnique(0);
     }
+    RVIZ_RENDERING_LOG_INFO("handleSchemeNotFound: failure");
     return nullptr;
   }
 };
-
 }  // namespace
 
 RenderSystem::RenderSystem()
@@ -241,7 +240,8 @@ RenderSystem::setupShaderGenerator()
     const std::filesystem::path ogre_media =
       result.resourcePath.value() / "opt" / "rviz_ogre_vendor" / "share" / "OGRE-14.5" / "Media";
 #endif    
-    const std::string group = "render_system";
+    const std::string group =
+      Ogre::ResourceGroupManager::INTERNAL_RESOURCE_GROUP_NAME;
     auto & rgm = Ogre::ResourceGroupManager::getSingleton();
     rgm.addResourceLocation((ogre_media / "RTShaderLib").string(), "FileSystem", group);
     rgm.addResourceLocation((ogre_media / "Main").string(), "FileSystem", group);
@@ -259,11 +259,11 @@ RenderSystem::setupShaderGenerator()
     Ogre::RTShader::ShaderGenerator::getSingleton().addSceneManager(sm);
     RVIZ_RENDERING_LOG_INFO_STREAM("Added SceneManager: " << sm->getName() << " of type " << sm->getTypeName());
   }
-
-  auto& materialManager = Ogre::MaterialManager::getSingleton();
-  materialManager.setActiveScheme(Ogre::RTShader::ShaderGenerator::DEFAULT_SCHEME_NAME);
+#ifndef __METAL__
   static RvizShaderSchemeResolver scheme_resolver;
   Ogre::MaterialManager::getSingleton().addListener(&scheme_resolver);
+  Ogre::MaterialManager::getSingleton().setActiveScheme(Ogre::RTShader::ShaderGenerator::DEFAULT_SCHEME_NAME);
+#endif  
 }
 
 void
@@ -303,9 +303,9 @@ RenderSystem::loadOgrePlugins()
   std::filesystem::path plugin_prefix = get_ogre_plugin_directory();
 #if defined _WIN32 && !NDEBUG
   ogre_root_->loadPlugin((plugin_prefix / "RenderSystem_GL_d").string());
-#elif defined __APPLE__
-  // ogre_root_->loadPlugin((plugin_prefix / "Plugin_GLSLangProgramManager").string());
+#elif defined __METAL__
   ogre_root_->loadPlugin((plugin_prefix / "RenderSystem_Metal").string());
+#elif defined __APPLE__
   ogre_root_->loadPlugin((plugin_prefix / "RenderSystem_GL3Plus").string());
 #else
   ogre_root_->loadPlugin((plugin_prefix / "RenderSystem_GL").string());
@@ -369,9 +369,13 @@ RenderSystem::setupRenderSystem()
   }
   RVIZ_RENDERING_LOG_DEBUG(renderers_msg.substr(0, renderers_msg.length() - 1));
   std::vector<std::string> preferred_renderer_list = {
-    // "OpenGL",
+#if defined __METAL__
+    "Metal",
+#elif defined __APPLE__
     "OpenGL 3+",
-    // "Metal",
+#else
+    "OpenGL",
+#endif    
   };
   for (auto renderer_token : preferred_renderer_list) {
     for (const auto renderer : ogre_root_->getAvailableRenderers()) {
@@ -597,6 +601,9 @@ RenderSystem::makeRenderWindow(
     setupResources();
     Ogre::ResourceGroupManager::getSingleton().initialiseAllResourceGroups();
     setupShaderGenerator();
+#ifndef __METAL__
+    Ogre::RTShader::ShaderGenerator::getSingleton().setTargetLanguage("glsl");
+#endif
     auto& materialManager = Ogre::MaterialManager::getSingleton();
     materialManager.setActiveScheme(Ogre::RTShader::ShaderGenerator::DEFAULT_SCHEME_NAME);
     init = false;
